@@ -1,0 +1,5 @@
+﻿.container-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Due colonne di uguale larghezza */
+    gap: 20px; /* Spazio tra le colonne */
+}

@@ -1,0 +1,293 @@
+﻿@page "/images"
+
+@using BlazorBootstrap
+@using Microsoft.AspNetCore.Components.QuickGrid
+@using RfidPhoto.Interface
+@using RfidPhoto.Models
+@using SixLabors.ImageSharp
+@using SixLabors.ImageSharp.Drawing
+@using SixLabors.ImageSharp.Drawing.Processing
+@using SixLabors.ImageSharp.Processing;
+@using SixLabors.ImageSharp.Formats.Jpeg
+@using SixLabors.Fonts
+@inject IJSRuntime JSRuntime
+
+@inject IGestDBInterface GestDBService
+
+<h3>Acquisizione Immagini</h3>
+<div class="grid">
+    <QuickGrid Class="table" Items="readers" Pagination="@pagination">
+        <TemplateColumn Title="Seleziona">
+            <input type="checkbox" checked="@context.check" @onchange="eventArgs => HandleSelectionChanged(context, eventArgs.Value)" />
+        </TemplateColumn>
+        @* <PropertyColumn Property="read => read.CODICE_RISORSA" Title="Codice Risorsa" /> *@
+        <PropertyColumn Property="@(c => c.DESCRIZIONE)" Sortable="true" Title="Descrizione">
+            <ColumnOptions>
+                <div class="search-box">
+                    <input type="search" autofocus @bind="tipoFilter" @bind:event="oninput" placeholder="Descrizione..." />
+                </div>
+            </ColumnOptions>
+        </PropertyColumn>
+        @* <PropertyColumn Property="read => read.CODICE_LOCAZIONE" Title="Locazione" />
+        <PropertyColumn Property="read => read.STATO" Title="Stato" />
+        <PropertyColumn Property="read => read.RILEVATORE_RFID" Title="RFID" /> *@
+
+        @* <TemplateColumn Context="reader">
+            <a href="@($"reader/edit?id={reader.CODICE_RISORSA}")">Seleziona</a> 
+        </TemplateColumn> *@
+    </QuickGrid>
+</div>
+
+<Paginator State="@pagination" />
+
+@if (imballo != null)
+{
+    @* <div class="alert alert-info" role="alert">
+        Imballo Letto: @imballo.RAGIONE_SOCIALE - @imballo.LAVORAZIONE
+    </div> *@
+    <Card Color="CardColor.Primary" Class="mb-4" Style="width:50rem;background-color:black; color: white">
+        <CardHeader>
+            Imballo Letto
+        </CardHeader>
+        <ul class="list-group list-group-flush">
+            <li class="list-group-item">Data Ora Registrazione: @imballo.DATA_ORA_REGISTRAZIONE</li>
+            <li class="list-group-item">Codice Cliente: @imballo.CODICE_CLIENTE</li>
+            <li class="list-group-item">Ragione Sociale: @imballo.RAGIONE_SOCIALE</li>
+            <li class="list-group-item">Numero Formulario: @imballo.NUMERO_FORMULARIO</li>
+            <li class="list-group-item">Data Formulario: @imballo.DATA_FORMULARIO</li>
+            <li class="list-group-item">Quantità Formulario: @imballo.QUANTITA_FORMULARIO</li>
+            <li class="list-group-item">Materiale: @imballo.LAVORAZIONE</li>
+            <li class="list-group-item">Protocollo: @imballo.PROTOCOLLO</li>
+        </ul>
+    </Card>
+    <div class="row">
+        <div class="col-sm-6">
+            <Card>
+                <CardBody>
+                    <RadioInput Name="videotype" Label="Frontale" @bind-Value="isFrontaleOn"  />
+                    <RadioInput Name="videotype" Label="Posteriore" @bind-Value="isPosterioreOn" />
+                </CardBody>
+            </Card>
+        </div>
+    </div>
+    @* <div class="mt-3">
+        <div>isFrontaleOn: @isFrontaleOn</div>
+        <div>isPosterioreOn: @isPosterioreOn</div>
+    </div> *@
+    <video id="videoFeed" width="390" height="290" />
+
+    <canvas class="d-none" id="currentFrame" width="390" height="290" />
+    <canvas class="d-none" id="currentFrame2" width="390" height="290" />
+
+
+    <div class="row">
+        <div class="col-sm-6">
+            <Card>
+                <CardBody>
+                    <button class="btn btn-primary mb-3" @onclick="CaptureFrame">Cattura Immagine 1</button>
+                    @if (!string.IsNullOrEmpty(frameUri1))
+                    {
+                        <div style="border: 4px solid #6aa681; width: 397px; height: 297px">
+                            <img src="@frameUri1" />
+                        </div>
+
+                    }
+                </CardBody>
+            </Card>
+        </div>
+        <div class="col-sm-6">
+            <Card>
+                <CardBody>
+                    <button class="btn btn-primary mb-3" @onclick="CaptureFrame2">Cattura Immagine 2</button>
+                    @if (!string.IsNullOrEmpty(frameUri2))
+                    {
+                        <div style="border: 4px solid #6aa681; width: 397px; height: 297px">
+                            <img src="@frameUri2" />
+                        </div>
+
+                    }
+                </CardBody>
+            </Card>
+        </div>
+    </div>
+
+    @*  <div class="container-grid">
+        <div>
+            <button class="btn btn-primary mb-3" @onclick="CaptureFrame">Cattura Immagine 1</button>
+            @if (!string.IsNullOrEmpty(frameUri1))
+            {
+
+                <div style="border: 4px solid #6aa681; width: 400px;">
+                    <img src="@frameUri1" />
+                </div>
+
+            }
+        </div>
+        <div>
+            <button class="btn btn-primary mb-3" @onclick="CaptureFrame2">Cattura Immagine 2</button>
+            @if (!string.IsNullOrEmpty(frameUri2))
+            {
+                <div style="border: 4px solid #6aa681; width: 400px;">
+                    <img src="@frameUri2" />
+                </div>
+
+            }
+        </div>
+    </div> *@
+
+
+}
+
+
+@code {
+    private string captionText;
+    private string frameUri1;
+    private string frameUri2;
+    Font captionFont;
+    string? tipoFilter;
+    private bool isFrontaleOn;
+    private bool isPosterioreOn = true;
+    PaginationState pagination = new PaginationState { ItemsPerPage = 10 };
+    List<Readers> ReadersList = new List<Readers>();
+    Imballo? imballo;
+
+    private IQueryable<Readers> readers
+    {
+        get
+        {
+            var result = ReadersList.AsQueryable();
+            if (!String.IsNullOrEmpty(tipoFilter))
+            {
+                result = result.Where(m => m.DESCRIZIONE!.Contains(tipoFilter ?? string.Empty));
+            }
+            return result;
+        }
+        set { }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        ReadersList = await GestDBService.ListReaders();
+        readers = ReadersList.AsQueryable();
+    }
+
+    private async Task HandleSelectionChanged(Readers item, object value)
+    {
+        item.check = (bool)value;
+        if (item.check)
+        {
+            imballo = null;
+            //devo deselezionare tutti gli altri
+            foreach (var r in ReadersList)
+            {
+                if (r.CODICE_RISORSA != item.CODICE_RISORSA)
+                {
+                    r.check = false;
+                }
+            }
+            Console.WriteLine($"Selected: {item.CODICE_RISORSA}");
+            imballo = await GestDBService.GetImballoAttivo(item.RILEVATORE_RFID);
+            if (imballo != null)
+            {
+                var videoType = isFrontaleOn ? "user" : "environment";
+                await JSRuntime.InvokeVoidAsync("startVideo", "videoFeed", "videoType");
+                if (imballo.IMMAGINE1 != null)
+                {
+                    using (var image = SixLabors.ImageSharp.Image.Load(imballo.IMMAGINE1))
+                    {
+                        image.Mutate(x => x
+                            .Flip(FlipMode.Horizontal) //To match mirrored webcam image
+                            .Fill(Color.ParseHex("0008"), new RectangularPolygon(0, 290, 390, 20))
+                        );
+                        frameUri1 = image.ToBase64String(JpegFormat.Instance);
+                    }
+                }
+                if (imballo.IMMAGINE2 != null)
+                {
+                    using (var image = SixLabors.ImageSharp.Image.Load(imballo.IMMAGINE2))
+                    {
+                        image.Mutate(x => x
+                            .Flip(FlipMode.Horizontal) //To match mirrored webcam image
+                            .Fill(Color.ParseHex("0008"), new RectangularPolygon(0, 290, 390, 20))
+                        );
+                        frameUri2 = image.ToBase64String(JpegFormat.Instance);
+                    }
+                }
+            }
+
+        }
+        else
+        {
+            imballo = null;
+            Console.WriteLine($"Deselected: {item.CODICE_RISORSA}");
+        }
+    }
+
+    private async Task CaptureFrame()
+    {
+        try
+        {
+            Console.WriteLine($"Capture: fatto");
+            await JSRuntime.InvokeAsync<String>("getFrame", "videoFeed", "currentFrame", DotNetObjectReference.Create(this));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in CaptureFrame: {ex.Message}");
+        }
+
+    }
+
+    private async Task CaptureFrame2()
+    {
+        try
+        {
+            Console.WriteLine($"Capture2: fatto");
+            await JSRuntime.InvokeAsync<String>("getFrame2", "videoFeed", "currentFrame2", DotNetObjectReference.Create(this));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in CaptureFrame: {ex.Message}");
+        }
+    }
+
+    [JSInvokable]
+    public async Task ProcessImage(string imageString)
+    {
+        Console.WriteLine($"Process: fatto");
+        byte[] imageData = Convert.FromBase64String(imageString.Split(',')[1]);
+        using (var image = SixLabors.ImageSharp.Image.Load(imageData))
+        {
+            image.Mutate(x => x
+                .Flip(FlipMode.Horizontal) //To match mirrored webcam image
+                .Fill(Color.ParseHex("0008"), new RectangularPolygon(0, 290, 390, 20)) //Set footer bar for caption
+            //.DrawText(alignCenter, captionText, captionFont, Color.White, new PointF(8, 230)) //center in footer bar)
+            );
+
+            frameUri1 = image.ToBase64String(JpegFormat.Instance);
+        }
+        Console.WriteLine($"Process: Before insert");
+        await GestDBService.SaveImage(imballo.IDIMBALLO, imageData, 1);
+
+    }
+
+    [JSInvokable]
+    public async Task ProcessImage2(string imageString)
+    {
+        byte[] imageData = Convert.FromBase64String(imageString.Split(',')[1]);
+        using (var image = SixLabors.ImageSharp.Image.Load(imageData))
+        {
+            image.Mutate(x => x
+                .Flip(FlipMode.Horizontal) //To match mirrored webcam image
+                .Fill(Color.ParseHex("0008"), new RectangularPolygon(0, 290, 390, 20)) //Set footer bar for caption
+            //.DrawText(alignCenter, captionText, captionFont, Color.White, new PointF(8, 230)) //center in footer bar)
+            );
+
+            frameUri2 = image.ToBase64String(JpegFormat.Instance);
+        }
+
+        await GestDBService.SaveImage(imballo.IDIMBALLO, imageData, 2);
+
+    }
+}
+
+

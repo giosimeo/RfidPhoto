@@ -1,0 +1,60 @@
+﻿@page "/weather"
+@using RfidPhoto.Interface
+@using SixLabors.ImageSharp
+@using SixLabors.ImageSharp.Drawing
+@using SixLabors.ImageSharp.Drawing.Processing
+@using SixLabors.ImageSharp.Processing;
+@using SixLabors.ImageSharp.Formats.Jpeg
+@using SixLabors.Fonts
+@inject IJSRuntime JSRuntime
+
+@inject IGestDBInterface GestDBService
+
+<h1>Blazor Webcam</h1>
+<video id="videoFeed" width="320" height="240" />
+<canvas class="d-none" id="currentFrame" width="320" height="240" />
+<br />
+<button class="btn btn-primary mb-3" @onclick="CaptureFrame">Capture Frame</button>
+<br />
+
+@if (!string.IsNullOrEmpty(frameUri))
+{
+    <img src="@frameUri" />
+}
+
+
+@code {
+
+    private string captionText;
+    private string frameUri;
+    Font captionFont;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await JSRuntime.InvokeVoidAsync("startVideo", "videoFeed");
+    }
+
+    private async Task CaptureFrame()
+    {
+        await JSRuntime.InvokeAsync<String>("getFrame", "videoFeed", "currentFrame", DotNetObjectReference.Create(this));
+    }
+
+    [JSInvokable]
+    public async Task ProcessImage(string imageString)
+    {
+        byte[] imageData = Convert.FromBase64String(imageString.Split(',')[1]);
+
+        //Do image processing here
+
+        using (var image = Image.Load(imageData))
+        {
+            image.Mutate(x => x
+                .Flip(FlipMode.Horizontal) //To match mirrored webcam image
+                .Fill(Color.ParseHex("0008"), new RectangularPolygon(0, 220, 320, 20)) //Set footer bar for caption
+                //.DrawText(alignCenter, captionText, captionFont, Color.White, new PointF(8, 230)) //center in footer bar)
+            );
+            frameUri = image.ToBase64String(JpegFormat.Instance);
+        }
+        await GestDBService.SaveImage("4B2E8437-E69F-4D36-A96F-03A78E5BE7F2", imageData, 1);
+    }
+}
